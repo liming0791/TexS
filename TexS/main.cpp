@@ -7,10 +7,10 @@
 using namespace std;
 using namespace cv;
 
-const float PI = 3.1415926;
-const float E = 2.718281828459;
+const double PI = 3.1415926;
+const double E = 2.718281828459;
 
-float AMat[10000];
+double AMat[10000];
 
 class TN {
 public:
@@ -28,14 +28,21 @@ TN::TN() {
 void calcGMat(int w) { 
 	float b = w / 2;
 
-	float sigma = w / 6.f;
+	double sigma = w / 12.f;
 	float r2;
+	float total = 0;
 	for (int x = 0; x < w; x++) 
 		for (int y = 0; y < w; y++)
 		{
 			r2 = (x - b)*(x - b) + (y - b) * (y - b);
-			AMat[y * w + x] = 1 / sqrt(2*PI*sigma*sigma) * pow(E,-r2/2/sigma/sigma );;
+			AMat[y * w + x] = 1 / sqrt(2*PI*sigma*sigma) * pow(E,-r2/2/sigma/sigma );
+
+			printf("%f ", AMat[y * w + x]);
+			if (y == w - 1) printf("\n");
+			total += AMat[y * w + x];
 		}
+
+	printf("\ntotal: %f" , total);
 }
 
 void calcSMat(int w) {
@@ -59,10 +66,10 @@ void calcAMat(int w) {
 		}
 }
 
-float dis(Mat a, Mat b){
+double dis(Mat a, Mat b){
 	int w = a.cols, 
 		h = a.rows;
-	float dis = 0;
+	double dis = 0;
 	int a1, a2, a3, b1, b2, b3;
 	for (int y = 0; y < h; y++)
 		for (int x = 0; x < w; x++)
@@ -78,10 +85,11 @@ float dis(Mat a, Mat b){
 			dis = dis + (a1 - b1)*(a1 - b1)
 				+ (a2 - b2)*(a2 - b2)
 				+ (a3 - b3)*(a3 - b3);
-
 		}
 
-	return dis / h / w / 3 / 255 / 255;
+	dis = sqrt(dis);
+
+	return dis / h / w / 3 / 255;
 }
 
 int findMin(Mat& a, Mat s[4]) {
@@ -146,6 +154,8 @@ void cluster(TN* t, vector<int>& w_i, vector<Mat>& windows){
 	Mat s[4];
 	Mat c[4];
 	bool done = false;
+	double d;
+	unsigned int count = 0;
 	if (w_i.size() >= 4){
 		
 		for (int i = 0; i < 4; i++)
@@ -154,7 +164,7 @@ void cluster(TN* t, vector<int>& w_i, vector<Mat>& windows){
 		}
 
 		do{
-
+			count++;
 			for (int i = 0; i < 4; i++)
 			{
 				s[i] = c[i].clone();
@@ -170,10 +180,13 @@ void cluster(TN* t, vector<int>& w_i, vector<Mat>& windows){
 			}
 			done = true;
 			for (int i = 0; i < 4 && done; i++){
-				float d = dis(s[i], c[i]);
-				if ( d > 0.0001) done = false;
+			  d = dis(s[i], c[i]);
+				if ( d > 0.00001) done = false;
 			}
 		} while (!done);
+
+		if(count > 20)
+		printf("cluster: %d times \n", count);
 
 		//recursive action
 		for (int i = 0; i < 4; i++)
@@ -189,7 +202,7 @@ void synthesis(Mat& l_image, Mat& c_image, TN* t, int b_size){
 	TN* n_t = t, *d_t;
 	float minDis = 10,d;
 	int w = l_image.cols;
-	float g;
+	double g,weight;
 
 	Mat f_image(w,w, CV_32FC3, Scalar(0,0,0));
 
@@ -203,8 +216,8 @@ void synthesis(Mat& l_image, Mat& c_image, TN* t, int b_size){
 		}
 		
 
-	for (int y = b_size; y < w - b_size ; y+= b_size>>1)
-		for (int x = b_size; x < w - b_size ; x+= b_size>>1)
+	for (int y = b_size; y < w - b_size ; y+= b_size/2)
+		for (int x = b_size; x < w - b_size ; x+= b_size/2)
 		{
 			n_t = t;
 			do{
@@ -223,21 +236,25 @@ void synthesis(Mat& l_image, Mat& c_image, TN* t, int b_size){
 				n_t = d_t;
 			} while (!n_t->ifNode);
 
+			//weight =  0.01/pow(minDis , 1.2);
+			//printf("weight: %f \n", weight);
 			//average 
 			for (int yy = y - b_size; yy < y + b_size + 1; yy++)
 				for (int xx = x - b_size; xx < x + b_size + 1; xx++)
 				{
 					//different weight
-					g = AMat[(yy - y + b_size) *(b_size << 1 + 1) + xx - x + b_size];
+					weight = AMat[(yy - y + b_size) *(b_size * 2  + 1) + xx - x + b_size] *
+									 0.01/pow(minDis , 1.2);
+					
 					//g = 1;
 					f_image.at<Vec3f>(xx, yy)[0] += 
-						g*n_t->vec.at<Vec3b>(b_size + xx - x, b_size + yy -y)[0];
+						weight*n_t->vec.at<Vec3b>(b_size + xx - x, b_size + yy -y)[0];
 					f_image.at<Vec3f>(xx, yy)[1] += 
-						g*n_t->vec.at<Vec3b>(b_size + xx - x, b_size + yy - y)[1];
+						weight*n_t->vec.at<Vec3b>(b_size + xx - x, b_size + yy - y)[1];
 					f_image.at<Vec3f>(xx, yy)[2] += 
-						g*n_t->vec.at<Vec3b>(b_size + xx - x, b_size + yy - y)[2];
+						weight*n_t->vec.at<Vec3b>(b_size + xx - x, b_size + yy - y)[2];
 
-					c_image.at<float>(xx, yy) += g;
+					c_image.at<float>(xx, yy) += weight;
 				}
 
 			//ji shu
@@ -255,7 +272,6 @@ void synthesis(Mat& l_image, Mat& c_image, TN* t, int b_size){
 					f_image.at<Vec3f>(xx, yy)[2] +=
 						n_t->vec.at<Vec3b>(b_size + xx - x, b_size + yy - y)[2];
 					f_image.at<Vec3f>(xx, yy)[2] /= 2;
-
 				}*/
 
 		}
@@ -274,6 +290,8 @@ void synthesis(Mat& l_image, Mat& c_image, TN* t, int b_size){
 			l_image.at<Vec3b>(x, y)[1] = val > 255 ? 255 : val;
 			val = f_image.at<Vec3f>(x, y)[2] / count;
 			l_image.at<Vec3b>(x, y)[2] = val > 255 ? 255 : val;
+
+			//printf("count: %f \n", count);
 		}
 
 	//ji shu
@@ -288,9 +306,6 @@ void synthesis(Mat& l_image, Mat& c_image, TN* t, int b_size){
 			val = f_image.at<Vec3f>(x, y)[2] ;
 			l_image.at<Vec3b>(x, y)[2] = val > 255 ? 255 : val;
 		}*/
-
-
-	imshow("large image", l_image);
 }
 
 int random(int a, int b){
@@ -316,21 +331,20 @@ int main(int argc, char *argv[])
 {
 	//parse params
 	string s_image_name ;
-	int w_size ;
-	int l_image_size ;
+	int w_size , f_w_size;
+	int l_image_size , f_l_image_size;
+	int i_times;
 
 	if (argc < 2){
 		cout << "Please enter a iamge name as a param" << endl;
-		s_image_name = "circle.png";
-		w_size = 5;
-		l_image_size = 256;
+		s_image_name = "leaf.jpg";
+		f_l_image_size = 256;
 	}
 	else{
 		s_image_name = argv[1];
-		w_size = atoi(argv[2]);
-		l_image_size = atoi(argv[3]);
+		f_l_image_size = atoi(argv[2]);
 	}
-	int b_size = w_size / 2;
+
 	//read image
 	Mat r_image = imread(s_image_name);
 	Mat s_image;
@@ -338,77 +352,133 @@ int main(int argc, char *argv[])
 	//get image params
 	int s_image_w = s_image.cols;
 	int s_image_h = s_image.rows;
-	//init large image
-	int sx, sy, xxx, yyy;
-	Mat l_image(l_image_size, l_image_size, CV_8UC3,Scalar(255,255,255));
-	for (int x = 0 ; x < l_image_size; x += b_size<<1)
-		for (int y = 0; y < l_image_size; y += b_size << 1)
+
+	int short_l = s_image_h < s_image_w ? s_image_h : s_image_w;
+
+	f_w_size = short_l * 0.4;
+	f_w_size = f_w_size % 2 == 0 ? (f_w_size + 1) : f_w_size;
+
+	int b_size = f_w_size;
+
+	Mat l_image;
+	Mat t_image;
+
+	string folderName = getTimeStr() + "_" + s_image_name + "_size_" + to_string(f_l_image_size);
+	string folderCreateCommand = "mkdir " + folderName;
+	std::system(folderCreateCommand.c_str());
+
+	int l_times = 3;
+	//multilevels
+	for (int level = 0; level < l_times; level++) {
+
+		switch (level)
 		{
-			sx = random(0, s_image_w - 2*b_size - 1);
-			sy = random(0, s_image_h - 2*b_size - 1);
+		case 0: b_size = 24;break;
+		case 1: b_size = 16;break;
+		case 2: b_size = 12;break;
+		default:
+			break;
+		}
+		w_size = 2 * b_size + 1;
 
-			for (int xx = x; xx < x + 2*b_size; xx++)
-				for (int yy = y; yy < y + 2*b_size; yy++)
+		l_image_size = (f_l_image_size >> (l_times - 1 - level)) + 2 * b_size;
+
+		//init large image
+		if (level == 0)
+		{
+			int sx, sy, xxx, yyy;
+			l_image = Mat(l_image_size, l_image_size, CV_8UC3, Scalar(255, 255, 255));
+			for (int x = 0; x < l_image_size; x += b_size << 1)
+				for (int y = 0; y < l_image_size; y += b_size << 1)
 				{
-					if (xx < l_image_size && yy < l_image_size) 
-					{
-						xxx = sx + xx - x;
-						yyy = sy + yy - y;
-						assert(xxx >= 0 && xxx < s_image_w && 
-									 yyy >= 0 && yyy < s_image_h && " small image index overflow ! ");
-						if (xx < 0 || yy < 0 || 
-								xxx < 0 || yyy < 0 || 
-								xxx >= s_image_w || yyy >= s_image_h) 
-						{
-							int i = 0;
-						}
+					sx = random(0, s_image_w - 2 * b_size - 1);
+					sy = random(0, s_image_h - 2 * b_size - 1);
 
-						l_image.at<Vec3b>(yy, xx) = s_image.at<Vec3b>(yyy, xxx);
-					}
+					for (int xx = x; xx < x + 2 * b_size; xx++)
+						for (int yy = y; yy < y + 2 * b_size; yy++)
+						{
+							if (xx < l_image_size && yy < l_image_size)
+							{
+								xxx = sx + xx - x;
+								yyy = sy + yy - y;
+								assert(xxx >= 0 && xxx < s_image_w &&
+									yyy >= 0 && yyy < s_image_h && " small image index overflow ! ");
+								if (xx < 0 || yy < 0 ||
+									xxx < 0 || yyy < 0 ||
+									xxx >= s_image_w || yyy >= s_image_h)
+								{
+									int i = 0;
+								}
+
+								l_image.at<Vec3b>(yy, xx) = s_image.at<Vec3b>(yyy, xxx);
+							}
+						}
 				}
 		}
-	//init counter
-	Mat count_image( l_image_size, l_image_size, CV_32FC1);
-	for (int x = 0; x < l_image_size; x++)
-		for (int y = 0; y < l_image_size; y++)
-		count_image.at<float>(x, y) = 0;
+		else
+		{
+			int l_b_size;
+			switch (level)
+			{
+			case 1: l_b_size = 24;break;
+			case 2: l_b_size = 16;break;
+			default:
+				break;
+			}
+			int l_l_image_size = (f_l_image_size >> (l_times - level)) + 2 * l_b_size;
+			t_image = Mat(l_image, Range(l_b_size, l_l_image_size - l_b_size), Range(l_b_size, l_l_image_size - l_b_size));
+			l_image = Mat(l_image_size, l_image_size, CV_8UC3, Scalar(255, 255, 255));
+			resize(t_image,
+						 l_image,
+						 Size(l_image_size,l_image_size));
+		}
+		//init counter
+		Mat count_image(l_image_size, l_image_size, CV_32FC1);
+		for (int x = 0; x < l_image_size; x++)
+			for (int y = 0; y < l_image_size; y++)
+			count_image.at<float>(x, y) = 0;
+
+		//get windows
+		vector<Mat> windows = vector<Mat>();
+		for (int x = b_size, x_e = s_image_w - b_size; x < x_e; x++)
+			for (int y = b_size, y_e = s_image_h - b_size; y < y_e; y++)
+			windows.push_back(Mat(s_image, Range(y - b_size, y + b_size + 1), Range(x - b_size, x + b_size + 1)));
+		
+		//build tree 
+		TN * Tree = new TN();
+		vector<int> idxs;
+		for (int i = 0; i < windows.size(); i++)
+			idxs.push_back(i);
+		cluster(Tree, idxs, windows);
+
+		//calc GMat
+		calcGMat(w_size);
+		//return 0;
+
+		//calcAMat(w_size);
+		//calcSMat(w_size);
+		//init
+		stringstream ss;
+		string name;
+		string fullPath;
+		//while (waitKey(-1) != 27)
+		int i_times = 50;
+		for (int i = 0; i < i_times; i++)
+		{
+			synthesis(l_image, count_image, Tree, b_size);
+		}
+		name = "_wsize_" + to_string(w_size) + "_iterate_"+ to_string(i_times) + ".jpg";
+		ss << folderName << "/" << name;
+		fullPath = ss.str();
+		ss.str("");
+		imwrite(fullPath, l_image);
+	}
+
 	//show image
 	namedWindow("small image");
 	imshow("small image", s_image);
 	namedWindow("large image");
 	imshow("large image", l_image);
-	//get windows
-	vector<Mat> windows = vector<Mat>();
-	for (int x = b_size, x_e = s_image_w - b_size; x < x_e; x++)
-		for (int y = b_size, y_e = s_image_h - b_size; y < y_e; y++)
-			windows.push_back( Mat(s_image, Range(y-b_size, y+b_size+1), Range(x-b_size, x+b_size+1)));
-	//build tree 
-	TN * Tree = new TN();
-	vector<int> idxs;
-	for (int i = 0; i < windows.size(); i++)
-		idxs.push_back(i);
-	cluster(Tree,idxs, windows);
-	//calc GMat
-	//calcGMat(w_size);
-	calcAMat(w_size);
-	//calcSMat(w_size);
-	//init
-	string folderName =  getTimeStr() +"_"+ s_image_name + "_w-size_" + to_string(w_size) ;
-	string folderCreateCommand = "mkdir " + folderName;
-	system(folderCreateCommand.c_str());
-	stringstream ss;
-	string name;
-	string fullPath;
-	//while (waitKey(-1) != 27)
-	for (int i = 0; i < 35; i++)
-	{
-		synthesis(l_image,count_image, Tree, b_size);
-		name = to_string(i) + ".jpg";
-		ss << folderName << "/" << name;
-		fullPath = ss.str();
-		ss.str("");
-		imwrite( fullPath, l_image);
-	}
 	while (waitKey(-1) != 27);
 	return 0;
 }
